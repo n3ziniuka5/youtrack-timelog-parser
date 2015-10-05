@@ -54,7 +54,7 @@ object App extends SafeApp {
     .appendLiteral(' ')
     .appendHalfdayOfDayText()
     .appendLiteral(' ')
-    .appendTimeZoneOffset(null, true, 2, 2)
+    .appendTimeZoneOffset("UTC", true, 2, 2)
     .toFormatter
 
   val DateRe = """^\d{2} \w{3} \d{4}$""".r
