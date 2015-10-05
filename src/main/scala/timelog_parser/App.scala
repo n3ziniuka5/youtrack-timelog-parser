@@ -63,7 +63,12 @@ object App extends SafeApp {
 
   override def run(args: ImmutableArray[String]) = {
     for {
-      lines <- if (args.isEmpty) readStdin else readFile(args(0))
+      lines <-
+        if (args.isEmpty)
+          IO.putStrLn("Waiting for input, !done\\n when finished\n")
+            .flatMap(_ => readStdin)
+        else
+          readFile(args(0))
       workEntries = process(lines)
       _ <- workEntries.map(e => IO.putStrLn(e.toString)).sequence_
       perDay = workedPerDay(workEntries)
