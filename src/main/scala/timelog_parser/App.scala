@@ -128,9 +128,24 @@ object App extends SafeApp {
           val entry = WorkEntry.ExactTime(range)
           starting(rest, current :+ entry)
         case (line @ TimeRe(_, hoursS, _, minutesS), rest) =>
-          val duration =
-            FiniteDuration(hoursS.toInt, TimeUnit.HOURS) +
-              FiniteDuration(minutesS.toInt, TimeUnit.MINUTES)
+          def parseInt(s: String, name: String) =
+            if (s == null) 0.success
+            else s.parseInt.leftMap { err =>
+              s"Error while parsing '$s' as $name: $err"
+            }
+
+          val durationV = (
+            parseInt(hoursS, "hours").toValidationNel |@|
+            parseInt(minutesS, "minutes").toValidationNel
+          ) { (hours, minutes) =>
+            FiniteDuration(hours, TimeUnit.HOURS) +
+            FiniteDuration(minutes, TimeUnit.MINUTES)
+          }
+
+          val duration = durationV.fold(
+            errs => sys.error(s"Error while parsing '$line' as time: $errs"),
+            identity
+          )
           val entry = WorkEntry.YouTrack(date, duration)
           starting(rest, current :+ entry)
       }
