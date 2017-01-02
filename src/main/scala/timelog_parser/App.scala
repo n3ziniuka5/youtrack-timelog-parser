@@ -3,7 +3,7 @@ package timelog_parser
 import java.util.concurrent.TimeUnit
 
 import org.joda.time.DateTime
-import org.joda.time.format.{DateTimeFormatter, DateTimeFormatterBuilder}
+import org.joda.time.format.{DateTimeFormat, DateTimeFormatterBuilder}
 
 import scalaz._
 import Scalaz._
@@ -105,9 +105,12 @@ object App extends SafeApp {
       workEntries = process(lines)
       _ <- workEntries.map(e => IO.putStrLn(e.toString)).sequence_
       perDay = workedPerDay(workEntries)
-      outLines = monthWorkLines(perDay)
+      workLines = groupedWorkLines(perDay)
+      sumLine = workDurationSumLine(perDay)
       _ <- IO.putStrLn("===========")
-      _ <- outLines.map(IO.putStrLn).sequence_
+      _ <- workLines.map(IO.putStrLn).sequence_
+      _ <- IO.putStrLn("===========")
+      _ <- IO.putStrLn(sumLine)
     } yield ()
   }
 
@@ -201,13 +204,20 @@ object App extends SafeApp {
     starting(lines, Vector.empty)
   }
 
-  def workedPerDay(entries: Vector[WorkEntry]): Map[Int, FiniteDuration] =
-    entries.groupBy(_.date.getDayOfMonth).mapValues(_.map(_.duration).reduce(_ + _))
+  def workedPerDay(entries: Vector[WorkEntry]): Map[String, FiniteDuration] = {
+    val dateFormat = DateTimeFormat.forPattern("yyyy-MM-dd")
+    entries.groupBy(entry => dateFormat.print(entry.date)).mapValues(_.map(_.duration).reduce(_ + _))
+  }
 
-  def monthWorkLines(perDay: Map[Int, FiniteDuration]): Vector[String] =
-    (1 to 31).map { day =>
-      perDay.get(day).fold("")(durationToSumString)
-    }(collection.breakOut)
+  def groupedWorkLines(perDay: Map[String, FiniteDuration]): Vector[String] =
+    perDay.map[String, Vector[String]] { case (day, duration) =>
+      s"$day - ${durationToSumString(duration)}"
+    }(collection.breakOut).sorted
+
+  def workDurationSumLine(perDay: Map[String, FiniteDuration]): String = {
+    val total = perDay.values.reduce(_ + _)
+    s"total hours = ${durationToSumString(total)}"
+  }
 
   def durationToSumString(duration: FiniteDuration): String = {
     val seconds = duration.toSeconds
