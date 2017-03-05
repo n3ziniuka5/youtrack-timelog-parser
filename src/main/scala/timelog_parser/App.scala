@@ -1,95 +1,48 @@
 package timelog_parser
 
+import java.time.temporal.ChronoUnit
+import java.time.{LocalDate, ZonedDateTime}
 import java.util.concurrent.TimeUnit
 
-import org.joda.time.DateTime
-import org.joda.time.format.{DateTimeFormatter, DateTimeFormatterBuilder}
-
-import scalaz._
-import Scalaz._
-import scalaz.effect._
+import scala.annotation.tailrec
 import scala.concurrent.duration._
 import scala.util.Try
+import scalaz.Scalaz._
+import scalaz._
+import scalaz.effect._
 import scalaz.stream._
 
 object WorkflowDateRange {
-  def create(start: DateTime, end: DateTime): String \/ WorkflowDateRange = {
+  def create(start: ZonedDateTime, end: ZonedDateTime): String \/ WorkflowDateRange = {
     if (end isAfter start) new WorkflowDateRange(start, end).right
     else s"WorkflowDateRange cannot start ($start) after end ($end)!".left
   }
 }
-case class WorkflowDateRange private (start: DateTime, end: DateTime) {
-  def toDuration = FiniteDuration(end.getMillis - start.getMillis, TimeUnit.MILLISECONDS)
+case class WorkflowDateRange private (start: ZonedDateTime, end: ZonedDateTime) {
+  def toDuration = FiniteDuration(
+    ChronoUnit.MILLIS.between(start, end), TimeUnit.MILLISECONDS
+  )
 
   override def toString = s"WorkflowDateRange(${App.durationToSumString(toDuration)}h, $start - $end)"
 }
 
 sealed trait WorkEntry {
-  def date: DateTime
+  def date: LocalDate
   def duration: FiniteDuration
 }
 object WorkEntry {
   case class ExactTime(range: WorkflowDateRange) extends WorkEntry {
-    override def date = range.start
+    override def date = range.start.toLocalDate
     override def duration = range.toDuration
 
     override def toString = s"ExactTime(${App.durationToSumString(duration)}h, ${range.start} - ${range.end})"
   }
-  case class YouTrack(date: DateTime, duration: FiniteDuration) extends WorkEntry {
+  case class YouTrack(date: LocalDate, duration: FiniteDuration) extends WorkEntry {
     override def toString = s"YouTrack (${App.durationToSumString(duration)}h, $date)"
   }
 }
 
 object App extends SafeApp {
-  // 30 Sep 2015
-  val DateFormat = new DateTimeFormatterBuilder()
-    .appendDayOfMonth(1)
-    .appendLiteral(' ')
-    .appendMonthOfYearText()
-    .appendLiteral(' ')
-    .appendYear(4, 4)
-    .toFormatter
-
-  // Wednesday, September 30, 2015 12:33:08 PM +02:00
-  val WorkEntryFormatOld = new DateTimeFormatterBuilder()
-    .appendDayOfWeekText()
-    .appendLiteral(", ")
-    .appendMonthOfYearText()
-    .appendLiteral(' ')
-    .appendDayOfMonth(1)
-    .appendLiteral(", ")
-    .appendYear(4, 4)
-    .appendLiteral(' ')
-    .appendClockhourOfHalfday(1)
-    .appendLiteral(':')
-    .appendMinuteOfHour(1)
-    .appendLiteral(':')
-    .appendSecondOfMinute(1)
-    .appendLiteral(' ')
-    .appendHalfdayOfDayText()
-    .appendLiteral(' ')
-    .appendTimeZoneOffset("UTC", true, 2, 2)
-    .toFormatter
-
-  // 2016-12-11 16:18:37 +0200
-  val WorkEntryFormat = new DateTimeFormatterBuilder()
-    .appendYear(4, 4)
-    .appendLiteral("-")
-    .appendMonthOfYear(1)
-    .appendLiteral('-')
-    .appendDayOfMonth(1)
-    .appendLiteral(" ")
-    .appendHourOfDay(1)
-    .appendLiteral(':')
-    .appendMinuteOfHour(1)
-    .appendLiteral(':')
-    .appendSecondOfMinute(1)
-    .appendLiteral(' ')
-    .appendTimeZoneOffset("UTC", false, 2, 2)
-    .toFormatter
-
-  val WorkEntryFormats = Vector(WorkEntryFormat, WorkEntryFormatOld)
-
   val DateRe = """^\d{2} \w{3} \d{4}$""".r
   val TimeRe = """^((\d+) hours? ?)?((\d+) min)?$""".r
   val WorkRe = """^Work: (.+?) (?:-|to) (.+)$""".r
@@ -123,9 +76,20 @@ object App extends SafeApp {
   val readStdin = readSource(IO.readLn)
   def readFile(path: String) = IO(io.linesR(path).map(_.trim).runLog.run)
 
+  def parseDate(s: String): ZonedDateTime =
+    Formats.WorkEntryFormats.foldLeft(Option.empty[ZonedDateTime]) {
+      case (None, format) =>
+        Try { ZonedDateTime.parse(s, format) }.toOption
+      case (o, _) => o
+    }.getOrElse {
+      throw new IllegalArgumentException(
+        s"Can't parse $s as date time with ${Formats.WorkEntryFormats}"
+      )
+    }
+
   /* This would be nice if JVM had tail call optimizations. */
   def process(lines: IndexedSeq[String]): Vector[WorkEntry] = {
-    def onLine(
+    @tailrec def onLine(
       lines: IndexedSeq[String], current: Vector[WorkEntry]
     )(
       f: PartialFunction[(String, IndexedSeq[String]), Vector[WorkEntry]]
@@ -146,25 +110,14 @@ object App extends SafeApp {
     ): Vector[WorkEntry] = {
       onLine(lines, current) {
         case (line @ DateRe(), rest) =>
-          val date = DateTime.parse(line, DateFormat)
+          val date = LocalDate.parse(line, Formats.DateFormat)
           hasDate(date, rest, current)
       }
     }
 
     def hasDate(
-      date: DateTime, lines: IndexedSeq[String], current: Vector[WorkEntry]
+      date: LocalDate, lines: IndexedSeq[String], current: Vector[WorkEntry]
     ): Vector[WorkEntry] = {
-      def parseDate(s: String): DateTime =
-        WorkEntryFormats.foldLeft(Option.empty[DateTime]) {
-          case (None, format) =>
-            Try { DateTime.parse(s, format) }.toOption
-          case (o, _) => o
-        }.getOrElse {
-          throw new IllegalArgumentException(
-            s"Can't parse $s as date time with $WorkEntryFormats"
-          )
-        }
-
       onLine(lines, current) {
         case (line @ WorkRe(start, end), rest) =>
           val entry = WorkflowDateRange.create(

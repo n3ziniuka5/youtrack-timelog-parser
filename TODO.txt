@@ -1,5 +1,0 @@
-Parse entries like:
-
-Work: Friday, September 23, 2016 11:40:00 PM +02:00 - Friday, September 23, 2016 4:40:00 PM +02:00
-
-Should be 11:40-16:40
