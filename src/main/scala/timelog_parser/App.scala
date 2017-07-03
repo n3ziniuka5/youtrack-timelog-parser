@@ -7,8 +7,13 @@ import java.util.concurrent.TimeUnit
 import scala.annotation.tailrec
 import scala.concurrent.duration._
 import scala.util.Try
-import scalaz.Scalaz._
-import scalaz._
+import scalaz.{\/, ImmutableArray, ValidationNel}
+import scalaz.syntax.either._
+import scalaz.syntax.validation._
+import scalaz.syntax.std.option._
+import scalaz.std.string.stringSyntax._
+import scalaz.syntax.applicative._
+import scalaz.std.vector._
 import scalaz.effect._
 import scalaz.stream._
 
@@ -55,12 +60,17 @@ object App extends SafeApp {
             .flatMap(_ => readStdin)
         else
           readFile(args(0))
-      workEntries = process(lines)
-      _ <- workEntries.map(e => IO.putStrLn(e.toString)).sequence_
-      perDay = workedPerDay(workEntries)
-      outLines = monthWorkLines(perDay)
-      _ <- IO.putStrLn("===========")
-      _ <- outLines.map(IO.putStrLn).sequence_
+      workEntriesV = process(lines)
+      _ <- workEntriesV.fold(
+        errors => IO.putStrLn(s"\n\nErrors while parsing:\n\n${errors.list.toVector.mkString("\n")}"),
+        workEntries => for {
+          _ <- IO.putStrLn(workEntries.mkString("\n"))
+          perDay = workedPerDay(workEntries)
+          outLines = monthWorkLines(perDay)
+          _ <- IO.putStrLn("===========")
+          _ <- IO.putStrLn(outLines.mkString("\n"))
+        } yield ()
+      )
     } yield ()
   }
 
@@ -76,25 +86,24 @@ object App extends SafeApp {
   val readStdin = readSource(IO.readLn)
   def readFile(path: String) = IO(io.linesR(path).map(_.trim).runLog.run)
 
-  def parseDate(s: String): ZonedDateTime =
+  def parseDate(s: String): String \/ ZonedDateTime =
     Formats.WorkEntryFormats.foldLeft(Option.empty[ZonedDateTime]) {
       case (None, format) =>
-        Try { ZonedDateTime.parse(s, format) }.toOption
+        Try {
+          ZonedDateTime.parse(s, format)
+        }.toOption
       case (o, _) => o
-    }.getOrElse {
-      throw new IllegalArgumentException(
-        s"Can't parse $s as date time with ${Formats.WorkEntryFormats}"
-      )
-    }
+    }.toRightDisjunction(s"Can't parse $s as date time with ${Formats.WorkEntryFormats}")
 
-  /* This would be nice if JVM had tail call optimizations. */
-  def process(lines: IndexedSeq[String]): Vector[WorkEntry] = {
-    type Result = (IndexedSeq[String], Vector[WorkEntry])
+  type Lines = Vector[String]
+  type ProcessResult = ValidationNel[String, Vector[WorkEntry]]
+  def process(lines: Lines): ProcessResult = {
+    type Result = (Lines, ProcessResult)
 
     @tailrec def onLine(
-      lines: IndexedSeq[String], current: Vector[WorkEntry]
+      lines: Lines, current: ProcessResult
     )(
-      f: PartialFunction[(String, IndexedSeq[String]), Result]
+      f: PartialFunction[(String, Lines), Result]
     ): Result = {
       if (lines.isEmpty) (lines, current)
       else {
@@ -108,8 +117,8 @@ object App extends SafeApp {
     }
 
     @tailrec def starting(
-      lines: IndexedSeq[String], current: Vector[WorkEntry]
-    ): Vector[WorkEntry] = {
+      lines: Lines, current: ProcessResult
+    ): ProcessResult = {
       val (restOfLines, newCurrent) = onLine(lines, current) {
         case (line @ DateRe(), rest) =>
           val date = LocalDate.parse(line, Formats.DateFormat)
@@ -120,17 +129,19 @@ object App extends SafeApp {
     }
 
     def hasDate(
-      date: LocalDate, lines: IndexedSeq[String], current: Vector[WorkEntry]
+      date: LocalDate, lines: Lines, current: ProcessResult
     ): Result = {
       onLine(lines, current) {
         case (line @ WorkRe(start, end), rest) =>
-          val entry = WorkflowDateRange.create(
-            parseDate(start), parseDate(end)
-          ).fold(
-            err => sys.error(s"Error while parsing '$line' as work: $err"),
-            range => WorkEntry.ExactTime(range)
-          )
-          (rest, current :+ entry)
+          val startV = parseDate(start).validationNel
+          val endV = parseDate(end).validationNel
+          val entry =
+            (startV |@| endV) { WorkflowDateRange.create }.fold(
+              errs => errs.map(err => s"Error while parsing '$line' as work: $err").failure,
+              either => either.validationNel
+            )
+            .map(v => Vector(WorkEntry.ExactTime(v)))
+          (rest, current +++ entry)
         case (line @ TimeRe(_, hoursS, _, minutesS), rest) =>
           def parseInt(s: String, name: String) =
             if (s == null) 0.success
@@ -146,16 +157,15 @@ object App extends SafeApp {
             FiniteDuration(minutes, TimeUnit.MINUTES)
           }
 
-          val duration = durationV.fold(
-            errs => sys.error(s"Error while parsing '$line' as time: $errs"),
-            identity
-          )
-          val entry = WorkEntry.YouTrack(date, duration)
-          (rest, current :+ entry)
+          val entry =
+            durationV
+            .leftMap(errs => errs.map(s"Error while parsing '$line' as time: " + _))
+            .map(duration => Vector(WorkEntry.YouTrack(date, duration)))
+          (rest, current +++ entry)
       }
     }
 
-    starting(lines, Vector.empty)
+    starting(lines, Vector.empty[WorkEntry].successNel)
   }
 
   def workedPerDay(entries: Vector[WorkEntry]): Map[Int, FiniteDuration] =

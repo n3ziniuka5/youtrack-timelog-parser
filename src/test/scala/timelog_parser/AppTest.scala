@@ -1,12 +1,13 @@
 package timelog_parser
 
 import java.time._
+import scalaz.std.vector._, scalaz.syntax.validation._
 
 import org.specs2.mutable.Specification
 import timelog_parser.WorkEntry.ExactTime
 
 class AppTest extends Specification {
-  def splitLines(s: String): Array[String] = s.split("[\r\n]+")
+  def splitLines(s: String): Vector[String] = s.split("[\r\n]+").toVector
 
   {
     val dates = Vector(LocalDate.of(2016, 11, 29), LocalDate.of(2017, 1, 2))
@@ -53,7 +54,7 @@ No type
     val expected = Vector(ExactTime(WorkflowDateRange(
       date(2016, 11, 29, 13, 11, 16, 2),
       date(2016, 11, 29, 17, 31, 3, 2)
-    )))
+    ))).successNel[String]
     result must_=== expected
   }
 
@@ -71,7 +72,7 @@ No type
     val expected = Vector(ExactTime(WorkflowDateRange(
       date(2016, 12, 11, 16, 18, 37, 2),
       date(2016, 12, 11, 16, 18, 40, 2)
-    )))
+    ))).successNel[String]
     result must_=== expected
   }
 
@@ -89,7 +90,7 @@ No type
     val expected = Vector(ExactTime(WorkflowDateRange(
       date(2017, 2, 3, 16, 17, 28, 1),
       date(2017, 2, 3, 16, 18, 40, 1)
-    )))
+    ))).successNel[String]
     result must_=== expected
   }
 
@@ -107,7 +108,7 @@ No type
     val expected = Vector(ExactTime(WorkflowDateRange(
       date(2017, 2, 3, 16, 17, 28, 0),
       date(2017, 2, 3, 16, 18, 40, 0)
-    )))
+    ))).successNel[String]
     result must_=== expected
   }
 }
