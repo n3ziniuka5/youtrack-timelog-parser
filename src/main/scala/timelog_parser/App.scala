@@ -65,12 +65,12 @@ object App extends SafeApp {
   }
 
   def readSource(read: IO[String]): IO[Vector[String]] = {
-    def rec(stream: Vector[String]): IO[Vector[String]] = read.flatMap {
-      case "!done" | null => IO(stream)
-      case line => rec(stream :+ line.trim)
+    lazy val readAll: IO[Vector[String]] = read.flatMap {
+      case "!done" | null => IO(Vector.empty)
+      case line => readAll.map(line.trim +: _)
     }
 
-    rec(Vector.empty)
+    readAll
   }
 
   val readStdin = readSource(IO.readLn)
@@ -89,35 +89,39 @@ object App extends SafeApp {
 
   /* This would be nice if JVM had tail call optimizations. */
   def process(lines: IndexedSeq[String]): Vector[WorkEntry] = {
+    type Result = (IndexedSeq[String], Vector[WorkEntry])
+
     @tailrec def onLine(
       lines: IndexedSeq[String], current: Vector[WorkEntry]
     )(
-      f: PartialFunction[(String, IndexedSeq[String]), Vector[WorkEntry]]
-    ): Vector[WorkEntry] = {
-      if (lines.isEmpty) current
+      f: PartialFunction[(String, IndexedSeq[String]), Result]
+    ): Result = {
+      if (lines.isEmpty) (lines, current)
       else {
         val line = lines.head
         val rest = lines.tail
         f.lift((line, rest)) match {
           case None => onLine(rest, current)(f)
-          case Some(entries) => entries
+          case Some(result) => result
         }
       }
     }
 
-    def starting(
+    @tailrec def starting(
       lines: IndexedSeq[String], current: Vector[WorkEntry]
     ): Vector[WorkEntry] = {
-      onLine(lines, current) {
+      val (restOfLines, newCurrent) = onLine(lines, current) {
         case (line @ DateRe(), rest) =>
           val date = LocalDate.parse(line, Formats.DateFormat)
           hasDate(date, rest, current)
       }
+      if (restOfLines.isEmpty) newCurrent
+      else starting(restOfLines, newCurrent)
     }
 
     def hasDate(
       date: LocalDate, lines: IndexedSeq[String], current: Vector[WorkEntry]
-    ): Vector[WorkEntry] = {
+    ): Result = {
       onLine(lines, current) {
         case (line @ WorkRe(start, end), rest) =>
           val entry = WorkflowDateRange.create(
@@ -126,7 +130,7 @@ object App extends SafeApp {
             err => sys.error(s"Error while parsing '$line' as work: $err"),
             range => WorkEntry.ExactTime(range)
           )
-          starting(rest, current :+ entry)
+          (rest, current :+ entry)
         case (line @ TimeRe(_, hoursS, _, minutesS), rest) =>
           def parseInt(s: String, name: String) =
             if (s == null) 0.success
@@ -147,7 +151,7 @@ object App extends SafeApp {
             identity
           )
           val entry = WorkEntry.YouTrack(date, duration)
-          starting(rest, current :+ entry)
+          (rest, current :+ entry)
       }
     }
 
