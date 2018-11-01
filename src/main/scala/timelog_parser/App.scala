@@ -2,7 +2,7 @@ package timelog_parser
 
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
-import java.time.{LocalDate, ZonedDateTime}
+import java.time.{LocalDate, LocalDateTime, ZonedDateTime}
 import java.util.concurrent.TimeUnit
 
 import scala.annotation.tailrec
@@ -51,8 +51,13 @@ object WorkEntry {
 
 object App extends SafeApp {
   val DateRe = """^\d{2} \w{3} \d{4}$""".r
+  val DateTimeRe = """^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$""".r
+  val JustNowRe = """.*just now$""".r
+  val MinutesAgoRe = """.*(\d+) minutes ago$""".r
+  val HoursAgoRe = """.*(\d+) hours ago$""".r
+
   val TimeRe = """^((\d+) hours? ?)?((\d+) min)?$""".r
-  val WorkRe = """^Work: (.+?) (?:-|to) (.+)$""".r
+  val WorkRe = """^\s?Work: (.+?) (?:-|to) (.+)$""".r
 
   override def run(args: ImmutableArray[String]) = {
     for {
@@ -128,6 +133,22 @@ object App extends SafeApp {
         case (line @ DateRe(), rest) =>
           val date = LocalDate.parse(line, Formats.DateFormat)
           hasDate(date, rest, current)
+
+        case (JustNowRe(), rest) =>
+          val date = LocalDate.now()
+          hasDate(date, rest, current)
+
+        case (MinutesAgoRe(minutes), rest) =>
+          val dateTime = LocalDateTime.now().minus(minutes.toLong, ChronoUnit.MINUTES)
+          hasDate(dateTime.toLocalDate, rest, current)
+
+        case (HoursAgoRe(hours), rest) =>
+          val dateTime = LocalDateTime.now().minus(hours.toLong, ChronoUnit.HOURS)
+          hasDate(dateTime.toLocalDate, rest, current)
+
+        case (line @ DateTimeRe(), rest) =>
+          val dateTime = LocalDateTime.parse(line)
+          hasDate(dateTime.toLocalDate, rest, current)
       }
       if (restOfLines.isEmpty) newCurrent
       else starting(restOfLines, newCurrent)

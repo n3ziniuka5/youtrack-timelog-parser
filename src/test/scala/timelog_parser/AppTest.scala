@@ -111,4 +111,64 @@ No type
     ))).successNel[String]
     result must_=== expected
   }
+
+  "new style (2018 Oct youtrack redesign, just now) should parse" >> {
+    val lines = splitLines(
+      s"""
+Laurynas Tretjakovas  added spent time just now
+ Work: 2018-11-1 09:17:50 +0200 to 2018-11-1 11:59:30 +0200
+No type: 2 hours 41 minutes on 2018-11-01
+""")
+    val result = App.process(lines)
+    val expected = Vector(ExactTime(WorkflowDateRange(
+      date(2018, 11, 1, 9, 17, 50, 2),
+      date(2018, 11, 1, 11, 59, 30, 2),
+    ))).successNel[String]
+    result must_=== expected
+  }
+
+  "new style (2018 Oct youtrack redesign, x minutes ago) should parse" >> {
+    val lines = splitLines(
+      s"""
+Laurynas Tretjakovas  added spent time 2 minutes ago
+ Work: 2018-11-1 09:17:50 +0200 to 2018-11-1 11:59:30 +0200
+No type: 2 hours 41 minutes on 2018-11-01
+""")
+    val result = App.process(lines)
+    val expected = Vector(ExactTime(WorkflowDateRange(
+      date(2018, 11, 1, 9, 17, 50, 2),
+      date(2018, 11, 1, 11, 59, 30, 2),
+    ))).successNel[String]
+    result must_=== expected
+  }
+
+  "new style (2018 Oct youtrack redesign, x hours ago) should parse" >> {
+    val lines = splitLines(
+      s"""
+17 hours ago
+ Work: 2018-10-31 17:01:48 +0200 to 2018-10-31 18:43:23 +0200
+No type: 1 hour 41 minutes on 2018-10-31
+""")
+    val result = App.process(lines)
+    val expected = Vector(ExactTime(WorkflowDateRange(
+      date(2018, 10, 31, 17, 1, 48, 2),
+      date(2018, 10, 31, 18, 43, 23, 2),
+    ))).successNel[String]
+    result must_=== expected
+  }
+
+  "new style (2018 Oct youtrack redesign, date time) should parse" >> {
+    val lines = splitLines(
+      s"""
+2018-10-30T20:54:13
+ Work: 2018-10-30 18:19:29 +0200 to 2018-10-30 20:54:13 +0200
+No type: 2 hours 34 minutes on 2018-10-30
+""")
+    val result = App.process(lines)
+    val expected = Vector(ExactTime(WorkflowDateRange(
+      date(2018, 10, 30, 18, 19, 29, 2),
+      date(2018, 10, 30, 20, 54, 13, 2),
+    ))).successNel[String]
+    result must_=== expected
+  }
 }
