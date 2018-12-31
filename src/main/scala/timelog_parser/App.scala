@@ -51,7 +51,7 @@ object WorkEntry {
 
 object App extends SafeApp {
   val DateRe = """^\d{2} \w{3} \d{4}$""".r
-  val DateTimeRe = """^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$""".r
+  val DateTimeRe = """^.*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})$""".r
   val JustNowRe = """.*just now$""".r
   val MinutesAgoRe = """.*(\d+) minutes ago$""".r
   val HoursAgoRe = """.*(\d+) hours ago$""".r
@@ -146,8 +146,8 @@ object App extends SafeApp {
           val dateTime = LocalDateTime.now().minus(hours.toLong, ChronoUnit.HOURS)
           hasDate(dateTime.toLocalDate, rest, current)
 
-        case (line @ DateTimeRe(), rest) =>
-          val dateTime = LocalDateTime.parse(line)
+        case (DateTimeRe(date), rest) =>
+          val dateTime = LocalDateTime.parse(date)
           hasDate(dateTime.toLocalDate, rest, current)
       }
       if (restOfLines.isEmpty) newCurrent

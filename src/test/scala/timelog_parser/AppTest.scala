@@ -142,6 +142,21 @@ No type: 2 hours 41 minutes on 2018-11-01
     result must_=== expected
   }
 
+  "new style (2018 Oct youtrack redesign, name and date time) should parse" >> {
+    val lines = splitLines(
+      s"""
+Laurynas Tretjakovas  added spent time 2018-12-28T18:13:04
+ Work: 2018-12-28 09:55:36 +0200 to 2018-12-28 18:13:04 +0200
+No type: 8 hours 17 minutes on 2018-12-28
+""")
+    val result = App.process(lines)
+    val expected = Vector(ExactTime(WorkflowDateRange(
+      date(2018, 12, 28, 9, 55, 36, 2),
+      date(2018, 12, 28, 18, 13, 4, 2),
+    ))).successNel[String]
+    result must_=== expected
+  }
+
   "new style (2018 Oct youtrack redesign, x hours ago) should parse" >> {
     val lines = splitLines(
       s"""
